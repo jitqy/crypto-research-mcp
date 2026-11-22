@@ -199,6 +199,59 @@ async def verify_evm_transaction(rpc_url: str, tx_hash: str) -> dict:
     except (httpx.HTTPError, ValueError, TypeError) as exc:
         return api_error(exc, 'server-configured CRYPTO_RPC_URL')
 
+@mcp.tool()
+async def check_rpc_connection() -> dict:
+    """Check Arc RPC connectivity and chain ID."""
+    rpc_url = os.environ.get("CRYPTO_RPC_URL", "")
+
+    if not rpc_url.startswith("https://"):
+        return {
+            "verified": False,
+            "error": "CRYPTO_RPC_URL is missing or invalid"
+        }
+
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.post(
+                rpc_url,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "eth_chainId",
+                    "params": []
+                }
+            )
+            response.raise_for_status()
+            result = response.json()
+
+        chain_id_hex = result.get("result")
+
+        if not isinstance(chain_id_hex, str):
+            raise ValueError(
+                str(result.get("error", "Missing chain ID"))
+            )
+
+        chain_id = int(chain_id_hex, 16)
+
+        return {
+            "retrieved_at_utc": datetime.now(
+                timezone.utc
+            ).isoformat(),
+            "chain_id": chain_id,
+            "expected_chain_id": 5042,
+            "verified": chain_id == 5042,
+            "note": "RPC connectivity only; no transaction verified"
+        }
+
+    except Exception as exc:
+        return {
+            "retrieved_at_utc": datetime.now(
+                timezone.utc
+            ).isoformat(),
+            "verified": False,
+            "error": str(exc)
+        }
+
 
 if __name__ == '__main__':
     mcp.run(transport='streamable-http')
